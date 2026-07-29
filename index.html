@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Laudo Manutenção</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState } = React;
+
+    function App() {
+      // Estados
+      const [dataIdentificacao, setDataIdentificacao] = useState(new Date().toISOString().split('T')[0]);
+      const [prefixo, setPrefixo] = useState('');
+      const [placa, setPlaca] = useState('');
+      const [linha, setLinha] = useState('');
+      const [garantia, setGarantia] = useState('Não');
+      const [responsavel, setResponsavel] = useState('[NOME_DA_EMPRESA]');
+      const [categoriaProblema, setCategoriaProblema] = useState('Mecânico');
+      const [descricaoGenerica, setDescricaoGenerica] = useState('');
+      const [descricaoDetalhada, setDescricaoDetalhada] = useState('');
+      const [solucaoAplicada, setSolucaoAplicada] = useState('');
+      const [fotosProblema, setFotosProblema] = useState([]);
+      const [fotosSolucao, setFotosSolucao] = useState([]);
+      const [historicoLaudos, setHistoricoLaudos] = useState([]);
+      const [salvando, setSalvando] = useState(false);
+
+      const handleImageUpload = (e, setImagesList) => {
+        const files = Array.from(e.target.files);
+        files.forEach(file => {
+          if (!file.type.startsWith('image/')) return;
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            setImagesList(prev => [...prev, reader.result]);
+          };
+          reader.readAsDataURL(file);
+        });
+        e.target.value = null; 
+      };
+
+      const removeImage = (index, setImagesList) => {
+        setImagesList(prev => prev.filter((_, i) => i !== index));
+      };
+
+      const handlePrint = () => {
+        window.print();
+      };
+
+      const formatarData = (dataStr) => {
+        if (!dataStr) return '';
+        const partes = dataStr.split('-');
+        if (partes.length !== 3) return dataStr;
+        return `${partes[2]}/${partes[1]}/${partes[0]}`;
+      };
+
+      // Integração com Google Apps Script
+      const salvarNoHistorico = () => {
+        if (!prefixo) {
+          alert("Por favor, preencha pelo menos o Prefixo do veículo.");
+          return;
+        }
+
+        setSalvando(true);
+
+        const dadosLaudo = {
+          dataIdentificacao, prefixo, placa, linha, garantia, responsavel,
+          categoriaProblema, descricaoGenerica, descricaoDetalhada, solucaoAplicada
+        };
+
+        // Chama a função do backend (Código.gs)
+        google.script.run
+          .withSuccessHandler((resultado) => {
+            setSalvando(false);
+            if (resultado.sucesso) {
+              alert(resultado.mensagem);
+              // Atualiza Pareto localmente
+              const novoRegistro = {
+                id: Date.now(),
+                data: dataIdentificacao,
+                prefixo,
+                categoria: categoriaProblema,
+              };
+              setHistoricoLaudos([...historicoLaudos, novoRegistro]);
+            } else {
+              alert(resultado.mensagem);
+            }
+          })
+          .withFailureHandler((erro) => {
+            setSalvando(false);
+            alert("Erro de comunicação: " + erro.message);
+          })
+          .salvarLaudo(dadosLaudo);
+      };
+
+      const dadosPareto = historicoLaudos.reduce((acc, laudo) => {
+        acc[laudo.categoria] = (acc[laudo.categoria] || 0) + 1;
+        return acc;
+      }, { 'Mecânico': 0, 'Carroceria': 0, 'Elétrica': 0, 'Pneus': 0, 'Limpeza': 0, 'Operacional': 0, 'Terceiro': 0 });
+
+      const tabelaPareto = Object.entries(dadosPareto)
+        .map(([categoria, quantidade]) => ({ categoria, quantidade }))
+        .sort((a, b) => b.quantidade - a.quantidade);
+
+      const totalProblemas = historicoLaudos.length;
+
+      return (
+        <div className="min-h-screen bg-slate-100 flex flex-col md:flex-row font-sans text-slate-800">
+          
+          <style dangerouslySetInnerHTML={{__html: `
+            @media print {
+              body { background-color: white; }
+              .print-hidden { display: none !important; }
+              .print-only { display: block !important; }
+              .print-a4 { width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; }
+              @page { margin: 1.5cm; }
+              .page-break-inside-avoid { break-inside: avoid; }
+            }
+          `}} />
+
+          {/* FORMULÁRIO */}
+          <div className="w-full md:w-[450px] lg:w-[500px] bg-white border-r border-slate-200 p-6 flex flex-col h-screen overflow-y-auto print-hidden shadow-lg z-10 shrink-0">
+            
+            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-100">
+              <div className="bg-blue-600 p-2 rounded-lg text-white flex items-center justify-center">
+                <span className="material-icons">build</span>
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-xl font-bold text-slate-800">Gerador de Laudos</h1>
+                  <span className="bg-blue-100 text-blue-800 text-xs font-semibold px-2 py-0.5 rounded">v1.1</span>
+                </div>
+                <p className="text-sm text-slate-500">Manutenção de Frota</p>
+              </div>
+            </div>
+
+            <form className="space-y-5 flex-1" onSubmit={(e) => e.preventDefault()}>
+              {/* Dados do Veículo */}
+              <section className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <span className="material-icons text-base">directions_bus</span> Dados do Veículo
+                </h2>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Data da Identificação</label>
+                    <input type="date" value={dataIdentificacao} onChange={e => setDataIdentificacao(e.target.value)} className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Prefixo</label>
+                    <input type="text" placeholder="Ex: 8205" value={prefixo} onChange={e => setPrefixo(e.target.value)} className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Placa</label>
+                    <input type="text" placeholder="Ex: ABC-1234" value={placa} onChange={e => setPlaca(e.target.value)} className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all uppercase" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Linha do Fretamento</label>
+                    <input type="text" placeholder="Ex: Rota 15 - Polo Industrial" value={linha} onChange={e => setLinha(e.target.value)} className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Em Garantia?</label>
+                    <select value={garantia} onChange={e => setGarantia(e.target.value)} className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                      <option value="Não">Não</option>
+                      <option value="Sim">Sim</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Responsável</label>
+                    <select value={responsavel} onChange={e => setResponsavel(e.target.value)} className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                      <option value="[NOME_DA_EMPRESA]">[NOME_DA_EMPRESA]</option>
+                      <option value="Montadora">Montadora</option>
+                      <option value="Encarroçadora">Encarroçadora</option>
+                      <option value="Terceiros">Terceiros</option>
+                    </select>
+                  </div>
+                </div>
+              </section>
+
+              {/* Dados do Problema */}
+              <section className="bg-orange-50 p-4 rounded-xl border border-orange-100">
+                <h2 className="text-sm font-semibold text-orange-800 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <span className="material-icons text-base">warning</span> Relato do Problema
+                </h2>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Categoria do Problema</label>
+                    <select value={categoriaProblema} onChange={e => setCategoriaProblema(e.target.value)} className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-orange-500 outline-none transition-all bg-white font-medium text-slate-700">
+                      <option value="Mecânico">Mecânico</option>
+                      <option value="Carroceria">Carroceria</option>
+                      <option value="Elétrica">Elétrica</option>
+                      <option value="Pneus">Pneus</option>
+                      <option value="Limpeza">Limpeza</option>
+                      <option value="Operacional">Operacional</option>
+                      <option value="Terceiro">Terceiro</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Cabeçalho (Descrição Genérica)</label>
+                    <input type="text" placeholder="Ex: Falha no sistema de ar condicionado" value={descricaoGenerica} onChange={e => setDescricaoGenerica(e.target.value)} className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-orange-500 outline-none transition-all" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Descrição Detalhada</label>
+                    <textarea rows="3" placeholder="Descreva os sintomas, testes realizados e causas encontradas..." value={descricaoDetalhada} onChange={e => setDescricaoDetalhada(e.target.value)} className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-orange-500 outline-none transition-all resize-none"></textarea>
+                  </div>
+                  
+                  {/* Fotos Problema */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Fotos do Problema</label>
+                    <label className="flex items-center justify-center w-full p-3 border-2 border-dashed border-orange-300 rounded-md cursor-pointer hover:bg-orange-100 transition-colors text-orange-700 text-sm font-medium">
+                      <span className="material-icons text-base mr-2">upload</span> Anexar Fotos
+                      <input type="file" multiple accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setFotosProblema)} />
+                    </label>
+                    {fotosProblema.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {fotosProblema.map((foto, idx) => (
+                          <div key={idx} className="relative group w-16 h-16 rounded-md overflow-hidden border border-slate-200">
+                            <img src={foto} alt={`Problema ${idx+1}`} className="w-full h-full object-cover" />
+                            <button type="button" onClick={() => removeImage(idx, setFotosProblema)} className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                              <span className="material-icons text-sm">delete</span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              {/* Dados da Solução */}
+              <section className="bg-green-50 p-4 rounded-xl border border-green-100">
+                <h2 className="text-sm font-semibold text-green-800 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <span className="material-icons text-base">check_circle</span> Solução Aplicada
+                </h2>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Serviços Realizados</label>
+                    <textarea rows="3" placeholder="Descreva as peças trocadas e serviços executados para sanar a falha..." value={solucaoAplicada} onChange={e => setSolucaoAplicada(e.target.value)} className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-green-500 outline-none transition-all resize-none"></textarea>
+                  </div>
+                  
+                  {/* Fotos Solução */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Fotos da Solução</label>
+                    <label className="flex items-center justify-center w-full p-3 border-2 border-dashed border-green-300 rounded-md cursor-pointer hover:bg-green-100 transition-colors text-green-700 text-sm font-medium">
+                      <span className="material-icons text-base mr-2">upload</span> Anexar Fotos
+                      <input type="file" multiple accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setFotosSolucao)} />
+                    </label>
+                    {fotosSolucao.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {fotosSolucao.map((foto, idx) => (
+                          <div key={idx} className="relative group w-16 h-16 rounded-md overflow-hidden border border-slate-200">
+                            <img src={foto} alt={`Solução ${idx+1}`} className="w-full h-full object-cover" />
+                            <button type="button" onClick={() => removeImage(idx, setFotosSolucao)} className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                              <span className="material-icons text-sm">delete</span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+            </form>
+
+            <div className="mt-6 pt-4 border-t border-slate-200 space-y-3">
+              <div className="flex gap-3">
+                <button 
+                  onClick={salvarNoHistorico}
+                  disabled={salvando}
+                  className={`flex-1 ${salvando ? 'bg-slate-400' : 'bg-slate-800 hover:bg-slate-900'} text-white font-medium py-2 rounded-lg flex items-center justify-center transition-colors shadow-sm text-sm`}
+                >
+                  <span className="material-icons text-base mr-2">{salvando ? 'hourglass_empty' : 'save'}</span>
+                  {salvando ? 'Salvando...' : 'Salvar Registro'}
+                </button>
+                <button 
+                  onClick={handlePrint}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg flex items-center justify-center transition-colors shadow-sm text-sm"
+                >
+                  <span className="material-icons text-base mr-2">print</span>
+                  Gerar PDF
+                </button>
+              </div>
+              
+              {/* Tabela de Pareto */}
+              <div className="mt-4 bg-slate-50 border border-slate-200 rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2 mb-3">
+                  <span className="material-icons text-base text-blue-600">bar_chart</span> 
+                  Base de Dados (Pareto)
+                </h3>
+                <table className="w-full text-xs text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-slate-500">
+                      <th className="pb-2 font-medium">Categoria</th>
+                      <th className="pb-2 font-medium text-center">Frequência</th>
+                      <th className="pb-2 font-medium text-right">% Acumulada</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      let acumulado = 0;
+                      return tabelaPareto.map((item) => {
+                        acumulado += item.quantidade;
+                        const percentual = totalProblemas > 0 ? ((acumulado / totalProblemas) * 100).toFixed(1) : 0;
+                        return (
+                          <tr key={item.categoria} className="border-b border-slate-100 last:border-0">
+                            <td className="py-2 text-slate-700">{item.categoria}</td>
+                            <td className="py-2 text-center font-semibold">{item.quantidade}</td>
+                            <td className="py-2 text-right text-slate-500">{percentual}%</td>
+                          </tr>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                </table>
+                <div className="mt-2 text-[10px] text-slate-400 text-center">
+                  Total de registros salvos na sessão: {totalProblemas}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* VISUALIZAÇÃO DO LAUDO (A4) */}
+          <div className="flex-1 overflow-y-auto bg-slate-200 p-4 md:p-8 flex justify-center print-a4 print:overflow-visible print:bg-white">
+            <div className="bg-white shadow-2xl w-full max-w-[210mm] min-h-[297mm] p-10 md:p-14 print-a4 relative flex flex-col">
+              
+              {/* Cabeçalho */}
+              <div className="border-b-4 border-blue-900 pb-4 mb-8 text-center flex flex-col items-center">
+                <h1 className="text-4xl font-extrabold uppercase tracking-widest text-blue-900 mb-1">
+                  [NOME_FANTASIA]
+                </h1>
+                <h2 className="text-xl font-bold text-slate-800">
+                  [NOME_DA_EMPRESA] S.A.
+                </h2>
+                <p className="text-xs text-slate-500 mt-2 font-medium">
+                  [ENDERECO_DA_EMPRESA]
+                </p>
+              </div>
+
+              <div className="text-center mb-8">
+                <h3 className="text-2xl font-bold text-slate-800 uppercase border-b border-slate-300 inline-block pb-1">
+                  Laudo Técnico de Manutenção
+                </h3>
+                <p className="text-sm text-slate-500 mt-2">Documento de registro de falhas e intervenções técnicas</p>
+              </div>
+
+              <div className="mb-8 page-break-inside-avoid">
+                <h4 className="font-bold text-blue-900 uppercase text-sm mb-3 flex items-center gap-2 border-b pb-1">
+                  <span className="material-icons text-base">description</span> 1. Identificação do Veículo
+                </h4>
+                <table className="w-full text-sm border-collapse">
+                  <tbody>
+                    <tr>
+                      <td className="border border-slate-300 p-2 font-bold bg-slate-50 w-1/4">Data do Registro:</td>
+                      <td className="border border-slate-300 p-2 w-1/4">{formatarData(dataIdentificacao) || '---'}</td>
+                      <td className="border border-slate-300 p-2 font-bold bg-slate-50 w-1/4">Prefixo:</td>
+                      <td className="border border-slate-300 p-2 w-1/4 font-semibold text-lg">{prefixo || '---'}</td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 p-2 font-bold bg-slate-50">Placa:</td>
+                      <td className="border border-slate-300 p-2 uppercase">{placa || '---'}</td>
+                      <td className="border border-slate-300 p-2 font-bold bg-slate-50">Linha/Fretamento:</td>
+                      <td className="border border-slate-300 p-2">{linha || '---'}</td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 p-2 font-bold bg-slate-50">Em Garantia:</td>
+                      <td className="border border-slate-300 p-2 font-semibold">{garantia}</td>
+                      <td className="border border-slate-300 p-2 font-bold bg-slate-50">Resp. Direto:</td>
+                      <td className="border border-slate-300 p-2 font-semibold text-blue-800">{responsavel}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mb-8">
+                <h4 className="font-bold text-blue-900 uppercase text-sm mb-3 flex items-center gap-2 border-b pb-1">
+                  <span className="material-icons text-base">warning</span> 2. Descrição da Falha
+                </h4>
+                <div className="border border-slate-300 rounded-md p-4 bg-slate-50/50">
+                  <div className="mb-4 grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="font-bold text-sm block text-slate-700 mb-1">Categoria:</span>
+                      <span className="text-xs font-bold text-orange-800 bg-orange-100 px-2 py-1 rounded-sm uppercase tracking-wider border border-orange-200">
+                        {categoriaProblema}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-sm block text-slate-700 mb-1">Motivo / Título Genérico:</span>
+                      <p className="text-sm text-slate-800 font-medium">{descricaoGenerica || 'Nenhum título informado.'}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="font-bold text-sm block text-slate-700 mb-1">Relato Detalhado:</span>
+                    <p className="text-sm text-slate-800 whitespace-pre-line leading-relaxed">
+                      {descricaoDetalhada || 'Nenhuma descrição detalhada informada.'}
+                    </p>
+                  </div>
+                </div>
+                
+                {fotosProblema.length > 0 && (
+                  <div className="mt-4 page-break-inside-avoid">
+                    <span className="font-bold text-sm text-slate-700 mb-2 flex items-center gap-1">
+                      <span className="material-icons text-sm">image</span> Evidências do Problema:
+                    </span>
+                    <div className="grid grid-cols-2 gap-4">
+                      {fotosProblema.map((foto, idx) => (
+                        <div key={idx} className="border border-slate-300 rounded p-1 bg-white">
+                          <img src={foto} alt={`Evidência problema ${idx}`} className="w-full h-48 object-contain rounded" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mb-8">
+                <h4 className="font-bold text-blue-900 uppercase text-sm mb-3 flex items-center gap-2 border-b pb-1">
+                  <span className="material-icons text-base">check_circle</span> 3. Intervenção e Serviços Realizados
+                </h4>
+                <div className="border border-slate-300 rounded-md p-4 bg-slate-50/50">
+                   <p className="text-sm text-slate-800 whitespace-pre-line leading-relaxed">
+                      {solucaoAplicada || 'Nenhuma solução descrita.'}
+                    </p>
+                </div>
+
+                {fotosSolucao.length > 0 && (
+                  <div className="mt-4 page-break-inside-avoid">
+                    <span className="font-bold text-sm text-slate-700 mb-2 flex items-center gap-1">
+                      <span className="material-icons text-sm">image</span> Evidências da Solução:
+                    </span>
+                    <div className="grid grid-cols-2 gap-4">
+                      {fotosSolucao.map((foto, idx) => (
+                        <div key={idx} className="border border-slate-300 rounded p-1 bg-white">
+                          <img src={foto} alt={`Evidência solução ${idx}`} className="w-full h-48 object-contain rounded" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-auto pt-16 page-break-inside-avoid">
+                <div className="grid grid-cols-2 gap-12 text-center">
+                  <div>
+                    <div className="border-t border-slate-400 w-full mx-auto mb-2"></div>
+                    <p className="text-sm font-bold text-slate-700">Técnico Responsável</p>
+                    <p className="text-xs text-slate-500 mt-1">[NOME_DA_EMPRESA] S.A.</p>
+                  </div>
+                  <div>
+                    <div className="border-t border-slate-400 w-full mx-auto mb-2"></div>
+                    <p className="text-sm font-bold text-slate-700">Gestor da Manutenção / Aprovação</p>
+                    <p className="text-xs text-slate-500 mt-1">Data: ___/___/20__</p>
+                  </div>
+                </div>
+                
+                <div className="text-center mt-12 text-xs text-slate-400 border-t pt-4">
+                  Documento interno. Este laudo técnico é parte integrante do histórico de manutenção da frota.
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
